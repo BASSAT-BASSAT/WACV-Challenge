@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hyppar"
+version = "0.2.0"
+description = "HypPAR: Hyperbolic Pedestrian Attribute Retrieval for UPAR Track 2"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "torch>=2.1.0",
+  "torchvision>=0.16.0",
+  "numpy>=1.24",
+  "Pillow>=10.0",
+  "tqdm>=4.66",
+  "pandas>=2.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["hyppar*"]

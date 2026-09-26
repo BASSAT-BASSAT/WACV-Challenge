@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+
+# Checkpoints & submissions (train on your machine; do not commit weights)
+checkpoints/
+*.pt
+*.pth
+*.zip
+hyppar/submission/assets/
+
+# Data (keep UPAR challenge data outside the repo)
+data/
+*.jpg
+*.png
+!docs/**
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+wandb/
+runs/
