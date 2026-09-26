@@ -8,13 +8,14 @@ CONFIG ?= configs/main_lorentz_entail.env
 
 export PYTHONPATH := $(CURDIR)$(if $(PYTHONPATH),:$(PYTHONPATH),)
 
-.PHONY: help setup smoke train-main train-euclid train-small train-paper \
-        eval-main eval-modes package clean-ckpts
+.PHONY: help setup smoke data train-main train-euclid train-small train-paper \
+        eval-main eval-modes package clean-ckpts curriculum
 
 help:
 	@echo "HypPAR Makefile targets:"
-	@echo "  make setup          install Python deps"
-	@echo "  make smoke          quick dataset/import check"
+	@echo "  make setup          install Python deps (incl. gdown)"
+	@echo "  make data           clone UPAR-Challenge-2027 + download Market/PA100K/PETA"
+	@echo "  make smoke          quick import/dataset check"
 	@echo "  make train-main     clean curriculum: Lorentz entailment (Tiny)"
 	@echo "  make train-euclid   clean Euclid twin (same schedule)"
 	@echo "  make train-small    clean Lorentz entailment (ConvNeXt-Small)"
@@ -23,12 +24,17 @@ help:
 	@echo "  make eval-modes     eval entailment/distance/attr_l1/hybrid"
 	@echo "  make package        build Codabench zip from main ckpt"
 	@echo ""
-	@echo "Override: make train-main CONFIG=configs/main_lorentz_entail_small.env"
-	@echo "Data:     export HYPPAR_UPAR_ROOT=/path/to/UPAR-Challenge-2027"
+	@echo "Data docs: DATA_SETUP.md"
+	@echo "Override:  make train-main CONFIG=configs/main_lorentz_entail_small.env"
+	@echo "Data path: export HYPPAR_UPAR_ROOT=/path/to/UPAR-Challenge-2027"
 
 setup:
 	$(PYTHON) -m pip install -U pip
 	$(PYTHON) -m pip install -r requirements.txt
+
+data:
+	$(PYTHON) scripts/setup_upar_data.py
+	@echo "Then: export HYPPAR_UPAR_ROOT=$$(dirname $(CURDIR))/UPAR-Challenge-2027"
 
 smoke:
 	$(PYTHON) -m hyppar.scripts.smoke_dataset

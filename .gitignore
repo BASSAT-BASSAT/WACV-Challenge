@@ -1,33 +1,66 @@
 # Python
 __pycache__/
+**/__pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
 .eggs/
 dist/
 build/
 .venv/
 venv/
+.env
+.env.*
+!.env.example
 
-# Checkpoints & submissions (train on your machine; do not commit weights)
+# Checkpoints & Codabench artifacts (train locally; never commit weights)
 checkpoints/
+**/checkpoints/
 *.pt
 *.pth
-*.zip
+*.ckpt
+*.onnx
 hyppar/submission/assets/
+*.zip
+!configs/**
 
-# Data (keep UPAR challenge data outside the repo)
+# UPAR images / raw datasets (download separately; see DATA_SETUP.md)
 /data/
+/UPAR-Challenge-2027/
+**/Market1501/
+**/PA100k/
+**/PETA/
+**/Market-1501*/
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+# Images (datasets are huge)
 *.jpg
+*.jpeg
 *.png
+*.bmp
 !docs/**
 
 # IDE / OS
 .idea/
 .vscode/
+*.swp
+*~
 .DS_Store
 Thumbs.db
+Desktop.ini
 
-# Logs
+# Logs / experiment trackers
 *.log
 wandb/
 runs/
+mlruns/
+lightning_logs/
+.ipynb_checkpoints/
+
+# Misc
+.git/COMMIT_MSG.txt
+*.bak

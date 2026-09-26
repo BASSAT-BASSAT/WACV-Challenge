@@ -26,18 +26,19 @@ Only change across ablations: `geometry` and/or `score_mode`.
 git clone https://github.com/BASSAT-BASSAT/HYPPAR-WACV.git
 cd HYPPAR-WACV
 
-# Python env with PyTorch+CUDA (your choice of conda/venv)
-pip install -r requirements.txt
-# or: pip install -e .
+pip install -r requirements.txt   # includes gdown for dataset download
 
-# Point at UPAR Challenge data (Market / PA100K / PETA + annotations)
-export HYPPAR_UPAR_ROOT=/path/to/UPAR-Challenge-2027
+# 1) Download UPAR annotations + Market / PA100K / PETA images
+make data
+# details: DATA_SETUP.md
+
+export HYPPAR_UPAR_ROOT="$(dirname "$PWD")/UPAR-Challenge-2027"
 export PYTHONPATH=$PWD
 
 make smoke
-make train-main          # clean Lorentz entailment (Tiny), ~Stage A+B
-make eval-modes          # entailment vs distance vs attr_l1 vs hybrid
-make package             # Codabench zip -> checkpoints/hyppar_task2_submission.zip
+make train-main          # clean Lorentz entailment (Tiny), Stage A+B
+make eval-modes
+make package             # -> checkpoints/hyppar_task2_submission.zip
 ```
 
 ### Stronger backbone (still ~8GB with AMP)
