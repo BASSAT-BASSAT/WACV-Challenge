@@ -16,7 +16,7 @@ checkpoints/
 hyppar/submission/assets/
 
 # Data (keep UPAR challenge data outside the repo)
-data/
+/data/
 *.jpg
 *.png
 !docs/**
