@@ -8,8 +8,9 @@ CONFIG ?= configs/main_lorentz_entail.env
 
 export PYTHONPATH := $(CURDIR)$(if $(PYTHONPATH),:$(PYTHONPATH),)
 
-.PHONY: help setup smoke data train-main train-euclid train-small train-paper \
-        eval-main eval-modes package clean-ckpts curriculum
+.PHONY: help setup smoke data train-main train-euclid train-small train-base train-paper \
+        eval-main eval-modes package clean-ckpts curriculum \
+	ablations ablations-dry eval-ablations train-par eval-par package-par lodo-par
 
 help:
 	@echo "HypPAR Makefile targets:"
@@ -19,10 +20,18 @@ help:
 	@echo "  make train-main     clean curriculum: Lorentz entailment (Tiny)"
 	@echo "  make train-euclid   clean Euclid twin (same schedule)"
 	@echo "  make train-small    clean Lorentz entailment (ConvNeXt-Small)"
+	@echo "  make train-base     clean Lorentz hybrid (ConvNeXt-Base, 8GB settings)"
 	@echo "  make train-paper    main + euclid twin"
+	@echo "  make ablations      train and evaluate the full geometry/backbone matrix"
+	@echo "  make ablations-dry  print the ablation commands without training"
+	@echo "  make eval-ablations evaluate existing ablation checkpoints"
 	@echo "  make eval-main      eval entailment on val"
 	@echo "  make eval-modes     eval entailment/distance/attr_l1/hybrid"
 	@echo "  make package        build Codabench zip from main ckpt"
+	@echo "  make train-par      strong PAR classifier (ConvNeXt-Base, focal+EMA)"
+	@echo "  make eval-par       calibrated weighted-L1 retrieval on val"
+	@echo "  make package-par    Codabench zip for PAR submission"
+	@echo "  make lodo-par       leave-one-domain-out model selection (3 folds)"
 	@echo ""
 	@echo "Data docs: DATA_SETUP.md"
 	@echo "Override:  make train-main CONFIG=configs/main_lorentz_entail_small.env"
@@ -67,10 +76,30 @@ train-small: CONFIG=configs/main_lorentz_entail_small.env
 train-small:
 	$(MAKE) curriculum CONFIG=$(CONFIG)
 
+train-base:
+	$(PYTHON) -m hyppar.scripts.train_curriculum \
+		--name lorentz_hybrid_base \
+		--geometry lorentz --score-mode hybrid --backbone convnext_base \
+		--stage-a-epochs 5 --stage-b-epochs 20 \
+		--batch-size-a 2 --batch-size-b 2 \
+		--grad-accum-a 16 --grad-accum-b 16 \
+		--lambda-attr 4 --lambda-rank 1 \
+		--unfreeze-mode stages --unfreeze-stages 2 \
+		--num-workers 2
+
 curriculum:
 	$(CURRICULUM)
 
 train-paper: train-main train-euclid
+
+ablations:
+	$(PYTHON) -m hyppar.scripts.run_ablations --epochs-a 3 --epochs-b 8 --batch-size 2 --grad-accum 8
+
+ablations-dry:
+	$(PYTHON) -m hyppar.scripts.run_ablations --dry-run
+
+eval-ablations:
+	$(PYTHON) -m hyppar.scripts.run_ablations --skip-train
 
 eval-main:
 	$(PYTHON) -m hyppar.evaluate \
@@ -95,3 +124,23 @@ package:
 
 clean-ckpts:
 	rm -rf checkpoints/*
+
+train-par: CONFIG=configs/par_convnext_base.env
+train-par:
+	$(PYTHON) -m hyppar.scripts.train_par \
+		--name $(NAME) --backbone $(BACKBONE) \
+		--epochs $(EPOCHS) --batch-size $(BATCH) --lr $(LR) --amp
+
+eval-par:
+	$(PYTHON) -m hyppar.scripts.evaluate_par \
+		--ckpt checkpoints/$(or $(NAME),par_convnext_base)/model.pt \
+		--save-artifacts \
+		--out checkpoints/$(or $(NAME),par_convnext_base)/eval_val_par.json
+
+package-par:
+	$(PYTHON) -m hyppar.scripts.package_par_submission \
+		--ckpt checkpoints/$(or $(NAME),par_convnext_base)/model.pt \
+		--out checkpoints/par_task2_submission.zip
+
+lodo-par:
+	$(PYTHON) -m hyppar.scripts.lodo_eval --backbone $(or $(BACKBONE),convnext_base)

@@ -15,7 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
+# hyppar/scripts/thisfile.py -> parents[2] = repo root
+REPO = Path(__file__).resolve().parents[2]
 PY = sys.executable
 
 
@@ -38,11 +39,17 @@ def main() -> None:
     p.add_argument("--geometry", choices=["euclidean", "lorentz"], default="lorentz")
     p.add_argument("--score-mode", default="entailment")
     p.add_argument("--composition", default="learned")
-    p.add_argument("--backbone", choices=["convnext_tiny", "convnext_small"], default="convnext_tiny")
+    p.add_argument(
+        "--backbone",
+        choices=["convnext_tiny", "convnext_small", "convnext_base"],
+        default="convnext_tiny",
+    )
     p.add_argument("--stage-a-epochs", type=int, default=5)
     p.add_argument("--stage-b-epochs", type=int, default=10)
     p.add_argument("--batch-size-a", type=int, default=64)
     p.add_argument("--batch-size-b", type=int, default=32)
+    p.add_argument("--grad-accum-a", type=int, default=1)
+    p.add_argument("--grad-accum-b", type=int, default=1)
     p.add_argument("--lr-a", type=float, default=1e-3)
     p.add_argument("--lr-b", type=float, default=5e-4)
     p.add_argument("--backbone-lr", type=float, default=5e-6)
@@ -62,6 +69,8 @@ def main() -> None:
     p.add_argument("--skip-a", action="store_true", help="Reuse existing stage_a.pt")
     p.add_argument("--skip-b", action="store_true")
     args = p.parse_args()
+    if args.grad_accum_a < 1 or args.grad_accum_b < 1:
+        p.error("--grad-accum-a and --grad-accum-b must be >= 1")
 
     ckpt_root = REPO / "checkpoints" / args.name
     ckpt_root.mkdir(parents=True, exist_ok=True)
@@ -117,6 +126,8 @@ def main() -> None:
                 str(args.stage_a_epochs),
                 "--batch-size",
                 str(args.batch_size_a),
+                "--grad-accum-steps",
+                str(args.grad_accum_a),
                 "--lr",
                 str(args.lr_a),
                 "--backbone-lr",
@@ -142,6 +153,8 @@ def main() -> None:
                 str(args.stage_b_epochs),
                 "--batch-size",
                 str(args.batch_size_b),
+                "--grad-accum-steps",
+                str(args.grad_accum_b),
                 "--lr",
                 str(args.lr_b),
                 "--backbone-lr",
