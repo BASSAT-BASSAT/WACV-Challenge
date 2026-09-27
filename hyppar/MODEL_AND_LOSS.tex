@@ -1,0 +1,163 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,hyperref,listings}
+\title{HypPAR ConvNeXt-Base Model and Loss}
+\author{}
+\date{September 2026}
+\begin{document}
+\maketitle
+
+\section{Task}
+Each gallery image $x_i$ has a 40-dimensional binary attribute vector $a_i$ and semantic ID $s_i$. A query is $q\in\{0,1\}^{40}$. The system returns a distance matrix $D(q,x)$, where lower values rank images earlier. The primary metric is mADM; mAP and Rank-1 are secondary.
+
+\section{Image model}
+The image encoder is an ImageNet-pretrained torchvision ConvNeXt. The repository supports Tiny, Small, and Base using \texttt{--backbone}. Base produces a 1024-dimensional feature vector:
+\[
+f=E_\theta(x)\in\mathbb{R}^{1024}.
+\]
+A learned projection maps $f$ to a 128-dimensional tangent vector and the exponential map sends it to the Lorentz hyperboloid. The backbone may be frozen, or only its final stages may be unfrozen with \texttt{--unfreeze-stages}.
+
+ConvNeXt uses LayerNorm rather than BatchNorm. LayerNorm normalizes each example independently and has no batch running statistics. Consequently, a physical batch of 2 or 4 does not create the BatchNorm small-batch problem. Replacing pretrained LayerNorm with GroupNorm would change the pretrained architecture and is not recommended for this experiment. GroupNorm is appropriate for a new CNN designed around it, not necessary for this ConvNeXt.
+
+\section{Attribute head}
+The attribute head predicts all 40 attributes:
+\[
+z=W_af+b_a,\qquad p_k=\sigma(z_k).
+\]
+The binary cross-entropy loss is
+\[
+\mathcal{L}_{\rm attr}=-\frac{1}{40B}\sum_{i=1}^B\sum_{k=1}^{40}
+\left[a_{ik}\log\sigma(z_{ik})+(1-a_{ik})\log(1-\sigma(z_{ik}))\right].
+\]
+The implementation uses PyTorch's numerically stable BCE-with-logits function.
+
+\section{Lorentz geometry}
+A Lorentz point is $h=(h_0,h_1,\ldots,h_d)$ with Minkowski product
+\[
+\langle u,v\rangle_L=-u_0v_0+\sum_{r=1}^du_rv_r.
+\]
+For curvature $c>0$, valid points satisfy
+\[
+\langle h,h\rangle_L=-1/c,\qquad h_0>0.
+\]
+The hyperbolic distance is
+\[
+d_H(u,v)=\frac{1}{\sqrt c}\operatorname{arcosh}(-c\langle u,v\rangle_L).
+\]
+A tangent vector is mapped using
+\[
+\operatorname{Exp}_0^c(v)=
+\left(\frac{\cosh(\sqrt c\|v\|)}{\sqrt c},
+\frac{\sinh(\sqrt c\|v\|)}{\sqrt c}\frac{\sqrt c v}{\sqrt c\|v\|}\right).
+\]
+The image embedding is $h_x=\operatorname{Exp}_0^c(W_xf+b_x)$.
+
+\section{Attribute prototypes and queries}
+Each attribute has a tangent prototype $t_k$, mapped to $h_k=\operatorname{Exp}_0^c(t_k)$. Active prototypes are averaged for a query:
+\[
+\bar h_q=\frac{1}{\max(1,\sum_kq_k)}\sum_{k=1}^{40}q_kh_k.
+\]
+With learned composition, an MLP transforms this average. A radius factor
+\[
+\rho_q=\operatorname{clip}\left(\frac{\sum_kq_k}{40},0.05,1\right)
+\]
+makes sparse queries closer to the origin. The time coordinate is reconstructed by
+\[
+h_{q,0}=\sqrt{1/c+\|\rho_q\bar h_q^{\rm spatial}\|^2}.
+\]
+The image radius is similarly scaled using predicted attribute density:
+\[
+d_x=\operatorname{clip}\left(\frac{1}{40}\sum_k\sigma(z_k),0.15,1\right).
+\]
+This encodes the intended hierarchy: sparse queries are general, while detailed images can be more specific.
+
+\section{Entailment score}
+Let $o$ be the Lorentz origin, $o_x=d_H(h_x,o)$, $o_q=d_H(h_q,o)$, and $d_{qx}=d_H(h_x,h_q)$. The exterior angle is computed as
+\[
+\cos\alpha=\frac{\cosh(\sqrt c o_x)\cosh(\sqrt c d_{qx})-\cosh(\sqrt c o_q)}{\sinh(\sqrt c o_x)\sinh(\sqrt c d_{qx})}.
+\]
+The cone aperture is
+\[
+\psi(x)=\arcsin\left(\min\left(\frac{K}{\sinh(\sqrt c o_x)},1\right)\right).
+\]
+The entailment energy and distance are
+\[
+E(x\Rightarrow q)=\max(0,\alpha-\psi(x)),
+\qquad d_{\rm ent}=d_H(h_q,h_x)+\beta E(x\Rightarrow q).
+\]
+The gallery image is treated as the specific premise that should entail the more general query.
+
+\section{Hybrid score}
+Hyperbolic similarity is $s_{\rm hyp}=-d_{\rm ent}$. The attribute L1 distance is
+\[
+d_{\rm attr}(q,x)=\sum_{k=1}^{40}|q_k-p_{xk}|
+=\sum_kp_{xk}+\sum_kq_k(1-2p_{xk}).
+\]
+The code z-scores both similarities per query:
+\[
+Z(s)=\frac{s-\operatorname{mean}(s)}{\operatorname{std}(s)}.
+\]
+With hybrid coefficient $m$ (default $0.7$),
+\[
+s_{\rm hybrid}=mZ(s_{\rm hyp})+(1-m)Z(-d_{\rm attr}),
+\qquad D=-s_{\rm hybrid}.
+\]
+
+\section{Multi-positive ranking loss}
+For a physical batch of $B$ images, let $d_{ij}$ be query-image distance and
+\[
+\ell_{ij}=-d_{ij}/\tau.
+\]
+Images sharing semantic ID are positives:
+\[
+M_{ij}=\mathbf{1}[s_i=s_j],\qquad P_i=\sum_jM_{ij}.
+\]
+The multi-positive InfoNCE loss is
+\[
+\mathcal{L}_{\rm rank}=-\frac1B\sum_i\frac1{P_i}\sum_jM_{ij}
+\left(\ell_{ij}-\log\sum_r e^{\ell_{ir}}\right).
+\]
+The prototype-model objective is
+\[
+\mathcal{L}=\lambda_{\rm attr}\mathcal{L}_{\rm attr}+\lambda_{\rm rank}\mathcal{L}_{\rm rank}.
+\]
+The defaults are $\lambda_{\rm attr}=2$ and $\lambda_{\rm rank}=1$. For the Base hybrid experiment, $\lambda_{\rm attr}=4$ is a reasonable starting point because the final score directly uses predicted attributes.
+
+\section{Accumulation on 8 GB}
+With $A$ accumulation steps, each physical-batch loss is divided by $A$:
+\[
+\widehat{\mathcal{L}}_t=\mathcal{L}_t/A.
+\]
+Gradients from $A$ forward/backward passes are accumulated, clipped once, and used for one optimizer update. AMP reduces activation memory. The effective optimization batch is approximately physical batch times $A$.
+
+Accumulation does not increase in-batch negatives: a physical batch of 2 still creates a $2\times2$ ranking matrix. Therefore use the largest physical batch that fits, then accumulate. Batch 4 with accumulation 8 is preferable to batch 2 with accumulation 16 when both fit.
+
+\section{Recommended Base command}
+\begin{lstlisting}[basicstyle=\ttfamily\small,breaklines=true]
+python -m hyppar.train ^
+  --model prototypes ^
+  --geometry lorentz ^
+  --composition learned ^
+  --score-mode hybrid ^
+  --backbone convnext_base ^
+  --epochs 20 ^
+  --batch-size 2 ^
+  --grad-accum-steps 16 ^
+  --amp ^
+  --unfreeze-stages 2 ^
+  --lr 3e-4 ^
+  --backbone-lr 5e-7 ^
+  --lambda-attr 4 ^
+  --lambda-rank 1 ^
+  --num-workers 2 ^
+  --name proto_lorentz_base_hybrid
+\end{lstlisting}
+
+Evaluate with:
+\begin{lstlisting}[basicstyle=\ttfamily\small,breaklines=true]
+python -m hyppar.evaluate ^
+  --ckpt hyppar/checkpoints/proto_lorentz_base_hybrid/model.pt ^
+  --score-mode hybrid --batch-size 64 --num-workers 2
+\end{lstlisting}
+
+\end{document}

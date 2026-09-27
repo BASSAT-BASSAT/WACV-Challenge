@@ -18,7 +18,7 @@ from .lorentz import (
 
 
 class ConvNeXtEncoder(nn.Module):
-    """ConvNeXt backbone: tiny (default) or small (stronger, still 8GB-friendly with AMP)."""
+    """ConvNeXt backbone with Tiny, Small, and Base variants."""
 
     def __init__(
         self,
@@ -34,6 +34,9 @@ class ConvNeXtEncoder(nn.Module):
         elif backbone in ("convnext_small", "small"):
             weights = tvm.ConvNeXt_Small_Weights.DEFAULT if pretrained else None
             net = tvm.convnext_small(weights=weights)
+        elif backbone in ("convnext_base", "base"):
+            weights = tvm.ConvNeXt_Base_Weights.DEFAULT if pretrained else None
+            net = tvm.convnext_base(weights=weights)
         else:
             raise ValueError(f"Unknown backbone: {backbone}")
         self.backbone_name = backbone

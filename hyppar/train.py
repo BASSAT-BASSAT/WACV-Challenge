@@ -104,13 +104,13 @@ def train_one_epoch(model, loader, optimizer, device, args, scaler):
     n = 0
     dist_fn = distance_fn_for(model)
     use_amp = bool(args.amp) and device.type == "cuda"
-    for batch in tqdm(loader, desc="train", leave=False):
+    optimizer.zero_grad(set_to_none=True)
+    for step, batch in enumerate(tqdm(loader, desc="train", leave=False), start=1):
         images = batch["image"].to(device, non_blocking=True)
         attrs = batch["attrs"].to(device, non_blocking=True)
         queries = batch["query"].to(device, non_blocking=True)
         sids = batch["semantic_id"].to(device, non_blocking=True)
 
-        optimizer.zero_grad(set_to_none=True)
         with torch.amp.autocast("cuda", enabled=use_amp):
             loss = torch.zeros((), device=device)
             if args.model == "image_query":
@@ -137,16 +137,23 @@ def train_one_epoch(model, loader, optimizer, device, args, scaler):
                         h_q, h_img, sids, dist_fn, temperature=args.tau
                     )
 
+        loss_for_backward = loss / args.grad_accum_steps
         if use_amp:
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
-            scaler.step(optimizer)
-            scaler.update()
+            scaler.scale(loss_for_backward).backward()
         else:
-            loss.backward()
+            loss_for_backward.backward()
+
+        should_step = step % args.grad_accum_steps == 0 or step == len(loader)
+        if should_step:
+            if use_amp:
+                scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
-            optimizer.step()
+            if use_amp:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
         total += float(loss.item())
         n += 1
     return total / max(n, 1)
@@ -198,7 +205,7 @@ def main() -> None:
     p.add_argument("--no-radius-compose", action="store_true")
     p.add_argument(
         "--backbone",
-        choices=["convnext_tiny", "convnext_small"],
+        choices=["convnext_tiny", "convnext_small", "convnext_base"],
         default="convnext_tiny",
     )
     p.add_argument("--embed-dim", type=int, default=128)
@@ -211,6 +218,7 @@ def main() -> None:
     p.add_argument("--no-pretrained", action="store_true")
     p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--batch-size", type=int, default=64)
+    p.add_argument("--grad-accum-steps", type=int, default=1)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--backbone-lr", type=float, default=1e-5)
     p.add_argument("--tau", type=float, default=0.07)
@@ -223,6 +231,8 @@ def main() -> None:
     p.add_argument("--data-root", type=str, default=str(DATA_ROOT))
     p.add_argument("--anno-root", type=str, default=str(ANNO_ROOT))
     args = p.parse_args()
+    if args.grad_accum_steps < 1:
+        p.error("--grad-accum-steps must be >= 1")
 
     # Euclid cannot use entailment cones — coerce to distance for fair twin.
     if args.geometry == "euclidean" and args.score_mode == "entailment":
