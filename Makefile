@@ -80,7 +80,7 @@ train-base:
 	$(PYTHON) -m hyppar.scripts.train_curriculum \
 		--name lorentz_hybrid_base \
 		--geometry lorentz --score-mode hybrid --backbone convnext_base \
-		--stage-a-epochs 5 --stage-b-epochs 20 \
+		--stage-a-epochs 4 --stage-b-epochs 8 \
 		--batch-size-a 2 --batch-size-b 2 \
 		--grad-accum-a 16 --grad-accum-b 16 \
 		--lambda-attr 4 --lambda-rank 1 \
@@ -93,7 +93,7 @@ curriculum:
 train-paper: train-main train-euclid
 
 ablations:
-	$(PYTHON) -m hyppar.scripts.run_ablations --epochs-a 3 --epochs-b 8 --batch-size 2 --grad-accum 8 --package
+	$(PYTHON) -m hyppar.scripts.run_ablations --epochs-a 4 --epochs-b 8 --batch-size 2 --grad-accum 8 --package
 
 ablations-dry:
 	$(PYTHON) -m hyppar.scripts.run_ablations --dry-run
