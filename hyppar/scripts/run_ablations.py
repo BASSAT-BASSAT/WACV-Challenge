@@ -40,6 +40,7 @@ def main() -> None:
     p.add_argument("--num-workers", type=int, default=2)
     p.add_argument("--skip-train", action="store_true")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--package", action="store_true", help="Build one named submission zip per checkpoint")
     p.add_argument("--only", type=str, default="", help="comma-separated experiment names")
     args = p.parse_args()
 
@@ -114,6 +115,19 @@ def main() -> None:
             continue
         run(eval_cmd)
         summary[e["name"]] = json.loads(eval_out.read_text(encoding="utf-8"))
+        if args.package:
+            package_out = CKPT / "submissions" / f"{e['name']}.zip"
+            run(
+                [
+                    PY,
+                    "-m",
+                    "hyppar.scripts.package_submission",
+                    "--ckpt",
+                    str(ckpt),
+                    "--out",
+                    str(package_out),
+                ]
+            )
 
     if args.dry_run:
         return

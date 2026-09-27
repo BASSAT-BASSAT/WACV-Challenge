@@ -93,7 +93,7 @@ curriculum:
 train-paper: train-main train-euclid
 
 ablations:
-	$(PYTHON) -m hyppar.scripts.run_ablations --epochs-a 3 --epochs-b 8 --batch-size 2 --grad-accum 8
+	$(PYTHON) -m hyppar.scripts.run_ablations --epochs-a 3 --epochs-b 8 --batch-size 2 --grad-accum 8 --package
 
 ablations-dry:
 	$(PYTHON) -m hyppar.scripts.run_ablations --dry-run
