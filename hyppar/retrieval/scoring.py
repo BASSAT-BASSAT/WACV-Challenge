@@ -23,9 +23,13 @@ def attr_l1_distances(
     if attr_weights is None:
         base = g.sum(1)[None, :] + q @ (1.0 - 2.0 * g).T
         return base.astype(np.float32)
-    w = attr_weights.astype(np.float32)[None, None, :]
-    diff = np.abs(q[:, None, :] - g[None, :, :])
-    return (diff * w).sum(axis=-1).astype(np.float32)
+    # For binary q, |q - p| = p + q * (1 - 2p). Applying weights first
+    # avoids materializing the (Q, G, A) tensor during full validation.
+    w = attr_weights.astype(np.float32)
+    weighted_gallery = g * w[None, :]
+    weighted_signed = (1.0 - 2.0 * g) * w[None, :]
+    base = weighted_gallery.sum(axis=1)[None, :] + q @ weighted_signed.T
+    return base.astype(np.float32)
 
 
 def compute_error_weights(
