@@ -91,7 +91,11 @@ class Hyper3ClipRuntime:
         inputs = self.image_processor(images=list(images), return_tensors="pt")
         pixel_values = inputs["pixel_values"].to(self.device)
         with _inference_mode():
-            embeddings = self.model.encode_image_tangent(pixel_values)
+            if hasattr(self.model, "encode_image_tangent"):
+                embeddings = self.model.encode_image_tangent(pixel_values)
+            else:
+                embeddings = self.model.encode_image_lorentz(pixel_values)
+                embeddings = _lorentz_to_tangent(embeddings, self.curvature)
         return embeddings.detach().cpu().numpy().astype(np.float32)
 
     def encode_texts(self, texts: Sequence[str]) -> np.ndarray:
@@ -116,10 +120,13 @@ class Hyper3ClipRuntime:
             list(texts), padding=True, truncation=True, max_length=77, return_tensors="pt"
         )
         with _inference_mode():
-            embeddings = self.model.encode_text_tangent(
-                tokens["input_ids"].to(self.device),
-                tokens["attention_mask"].to(self.device),
-            )
+            input_ids = tokens["input_ids"].to(self.device)
+            attention_mask = tokens["attention_mask"].to(self.device)
+            if hasattr(self.model, "encode_text_tangent"):
+                embeddings = self.model.encode_text_tangent(input_ids, attention_mask)
+            else:
+                embeddings = self.model.encode_text_lorentz(input_ids, attention_mask)
+                embeddings = _lorentz_to_tangent(embeddings, self.curvature)
         return embeddings.detach().cpu().numpy().astype(np.float32)
 
     def lift_text_tangents(self, tangents: np.ndarray) -> np.ndarray:
@@ -128,7 +135,11 @@ class Hyper3ClipRuntime:
         import torch
 
         with _inference_mode():
-            embeddings = self.model.project_text_features(torch.from_numpy(tangents).to(self.device))
+            tensor = torch.from_numpy(tangents).to(self.device)
+            if hasattr(self.model, "project_text_features"):
+                embeddings = self.model.project_text_features(tensor)
+            else:
+                embeddings = _exp_map0(tensor, self.curvature)
         return embeddings.detach().cpu().numpy().astype(np.float32)
 
 
@@ -142,3 +153,25 @@ def _inference_mode():
     import torch
 
     return torch.inference_mode()
+
+
+def _lorentz_to_tangent(points, curvature: float):
+    import torch
+
+    points = points.float()
+    spatial = points[..., 1:]
+    norm = spatial.norm(dim=-1, keepdim=True)
+    radius = torch.acosh(torch.clamp(torch.sqrt(torch.as_tensor(curvature, device=points.device)) * points[..., :1], min=1.0 + 1e-5))
+    return radius / torch.sqrt(torch.as_tensor(curvature, device=points.device)) * spatial / norm.clamp(min=1e-6)
+
+
+def _exp_map0(tangent, curvature: float):
+    import torch
+
+    c = torch.as_tensor(curvature, device=tangent.device, dtype=tangent.dtype)
+    scaled = tangent * torch.sqrt(c)
+    norm = scaled.norm(dim=-1, keepdim=True).clamp(min=1e-5)
+    direction = scaled / norm
+    return torch.cat(
+        [torch.cosh(norm) / torch.sqrt(c), torch.sinh(norm) * direction / torch.sqrt(c)], dim=-1
+    )
