@@ -153,6 +153,12 @@ def main() -> None:
     dataset = UPARTask2Dataset(
         args.data_root, args.anno_root, args.split, transform=eval_transform(), require_files=True
     )
+    gt, _, _ = load_split_tables(args.anno_root, args.split)
+    print(
+        f"data_root={args.data_root} anno_root={args.anno_root} split={args.split} | "
+        f"annotation_rows={len(gt)} records={len(dataset.records)} missing={dataset.missing}",
+        flush=True,
+    )
     runtime = Hyper3ClipRuntime(
         model_name=args.model, device=args.device, local_files_only=args.local_files_only
     )
