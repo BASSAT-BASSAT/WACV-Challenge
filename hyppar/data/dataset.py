@@ -197,3 +197,13 @@ class UPARTask2Dataset(Dataset):
 
 def domain_of(rel_path: str) -> str:
     return rel_path.replace("\\", "/").split("/")[0]
+
+
+def filter_records_by_domains(records: list[dict], domains: list[str] | None) -> list[dict]:
+    """Keep only records whose domain is in `domains` (None = keep all)."""
+    if not domains:
+        return records
+    from hyppar.data.domains import domain_in
+
+    allowed = list(domains)
+    return [r for r in records if domain_in(r["domain"], allowed)]

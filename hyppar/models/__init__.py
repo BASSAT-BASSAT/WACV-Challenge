@@ -1,5 +1,6 @@
 from .hyppar import AttributePrototypeModel, ImageQueryModel
 from .lorentz import LorentzProjection, euclidean_distance, lorentz_distance
+from .par_classifier import ConvNeXtPAR, build_par_model
 
 __all__ = [
     "AttributePrototypeModel",
@@ -7,4 +8,6 @@ __all__ = [
     "LorentzProjection",
     "euclidean_distance",
     "lorentz_distance",
+    "ConvNeXtPAR",
+    "build_par_model",
 ]

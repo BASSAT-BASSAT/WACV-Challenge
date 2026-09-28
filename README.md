@@ -5,6 +5,28 @@ UPAR Challenge 2027 Track 2 (WACV / RWS).
 
 Repo: [BASSAT-BASSAT/HYPPAR-WACV](https://github.com/BASSAT-BASSAT/HYPPAR-WACV)
 
+## Winning submission path (PAR + calibrated retrieval)
+
+Cross-domain Codabench test is **not** predicted by in-domain val. Use this stack:
+
+1. **PAR classifier** — ConvNeXt-Base, focal loss, label smoothing, EMA, AdamW  
+2. **Honest validation** — leave-one-domain-out (`make lodo-par`)  
+3. **Retrieval** — isotonic calibration + error/DBD attribute weights + weighted L1 + flip TTA  
+4. **Package** — `make package-par` → `checkpoints/par_task2_submission.zip`
+
+```bash
+export HYPPAR_UPAR_ROOT=/path/to/UPAR-Challenge-2027
+export PYTHONPATH=$PWD
+
+make train-par          # 15 epochs ConvNeXt-Base
+make eval-par           # fit calibration on val, report mADM
+make package-par        # Codabench zip (run.py = calibrated PAR)
+
+make lodo-par           # 3-fold domain holdout for model selection
+```
+
+Final model (if rules allow train+val): add `--merge-val-into-train` to `train_par`.
+
 ## Clean training protocol (use this for the paper)
 
 All reported runs use the **same from-scratch curriculum** (no ad-hoc warm-start chains):
