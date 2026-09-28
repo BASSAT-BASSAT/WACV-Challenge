@@ -79,7 +79,10 @@ class Hyper3ClipRuntime:
             inputs = self.image_processor(images=list(images), return_tensors="pt")
             pixel_values = inputs["pixel_values"].to(self.device)
             with _inference_mode():
-                embeddings = self.model.encode_image(pixel_values)
+                if hasattr(self.model, "encode_image_lorentz"):
+                    embeddings = self.model.encode_image_lorentz(pixel_values)
+                else:
+                    embeddings = self.model.encode_image(pixel_values)
             embeddings = embeddings.detach().cpu().numpy()
         else:
             embeddings = self.model.encode_images(list(images))

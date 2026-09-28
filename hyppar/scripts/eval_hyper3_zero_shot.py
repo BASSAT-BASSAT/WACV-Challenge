@@ -30,11 +30,11 @@ def cache_gallery(
 ) -> np.ndarray:
     if cache_path.is_file():
         cached = np.load(cache_path)["embeddings"]
-        if cached.shape[0] == len(dataset.records):
+        if cached.shape == (len(dataset.records), runtime.dim):
             return cached
         print(
-            f"ignoring stale cache {cache_path}: {cached.shape[0]} rows, "
-            f"expected {len(dataset.records)}",
+            f"ignoring stale cache {cache_path}: shape={cached.shape}, "
+            f"expected=({len(dataset.records)}, {runtime.dim})",
             flush=True,
         )
     chunks: list[np.ndarray] = []
@@ -60,7 +60,7 @@ def cache_gallery_tangents(
 ) -> np.ndarray:
     if cache_path.is_file():
         cached = np.load(cache_path)["embeddings"]
-        if cached.shape[0] == len(dataset.records):
+        if cached.shape == (len(dataset.records), 512):
             return cached
     chunks: list[np.ndarray] = []
     for start in tqdm(range(0, len(dataset.records), batch_size), desc="tangent gallery"):
