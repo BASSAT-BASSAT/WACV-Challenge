@@ -11,7 +11,7 @@ export PYTHONPATH := $(CURDIR)$(if $(PYTHONPATH),:$(PYTHONPATH),)
 .PHONY: help setup smoke data train-main train-euclid train-small train-base train-paper \
         eval-main eval-modes package clean-ckpts curriculum \
 	ablations ablations-dry eval-ablations train-par eval-par package-par lodo-par \
-	hyper3-install hyper3-zero-shot hyper3-zero-shot-euclidean train-hyper3-adapter eval-hyper3-adapter
+	hyper3-install hyper3-zero-shot hyper3-zero-shot-euclidean clip-zero-shot train-hyper3-adapter eval-hyper3-adapter
 
 help:
 	@echo "HypPAR Makefile targets:"
@@ -35,6 +35,7 @@ help:
 	@echo "  make lodo-par       leave-one-domain-out model selection (3 folds)"
 	@echo "  make hyper3-zero-shot  evaluate cached/downloaded Hyper3-CLIP prompts"
 	@echo "  make hyper3-zero-shot-euclidean  Euclidean tangent-space control"
+	@echo "  make clip-zero-shot       evaluate standard OpenAI CLIP baseline"
 	@echo "  make hyper3-install     install optional Hyper3-CLIP runtime"
 	@echo "  make train-hyper3-adapter  train frozen Hyper3-CLIP UPAR adapter"
 	@echo "  make eval-hyper3-adapter    evaluate the trained Hyper3 adapter"
@@ -114,6 +115,10 @@ hyper3-zero-shot:
 hyper3-zero-shot-euclidean:
 	$(PYTHON) -m hyppar.scripts.eval_hyper3_zero_shot \
 		--scoring euclidean --batch-size 16 --query-chunk 8 --gallery-chunk 512
+
+clip-zero-shot:
+	$(PYTHON) -m hyppar.scripts.eval_clip_zero_shot \
+		--device cuda --batch-size 32 --query-chunk 32 --gallery-chunk 1024
 
 hyper3-install:
 	$(PYTHON) -m pip install -e ".[hyper3]"
