@@ -11,7 +11,7 @@ export PYTHONPATH := $(CURDIR)$(if $(PYTHONPATH),:$(PYTHONPATH),)
 .PHONY: help setup smoke data train-main train-euclid train-small train-base train-paper \
         eval-main eval-modes package clean-ckpts curriculum \
 	ablations ablations-dry eval-ablations train-par eval-par package-par lodo-par \
-	hyper3-install hyper3-zero-shot train-hyper3-adapter
+	hyper3-install hyper3-zero-shot train-hyper3-adapter eval-hyper3-adapter
 
 help:
 	@echo "HypPAR Makefile targets:"
@@ -36,6 +36,7 @@ help:
 	@echo "  make hyper3-zero-shot  evaluate cached/downloaded Hyper3-CLIP prompts"
 	@echo "  make hyper3-install     install optional Hyper3-CLIP runtime"
 	@echo "  make train-hyper3-adapter  train frozen Hyper3-CLIP UPAR adapter"
+	@echo "  make eval-hyper3-adapter    evaluate the trained Hyper3 adapter"
 	@echo ""
 	@echo "Data docs: DATA_SETUP.md"
 	@echo "Override:  make train-main CONFIG=configs/main_lorentz_entail_small.env"
@@ -116,6 +117,11 @@ train-hyper3-adapter:
 	$(PYTHON) -m hyppar.scripts.train_hyper3_adapter \
 		--name hyper3_frozen_adapter --epochs 20 --batch-size 128 \
 		--lambda-attr 1 --lambda-exact 1 --lambda-graded 1 --amp
+
+eval-hyper3-adapter:
+	$(PYTHON) -m hyppar.scripts.eval_hyper3_adapter \
+		--ckpt checkpoints/hyper3_frozen_adapter/model.pt \
+		--score-mode hybrid --batch-size 16 --query-chunk 8 --gallery-chunk 512
 
 eval-main:
 	$(PYTHON) -m hyppar.evaluate \
