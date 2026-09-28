@@ -50,7 +50,12 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--ckpt", type=str, required=True)
     p.add_argument("--split", type=str, default="val")
-    p.add_argument("--calib-split", type=str, default="val", help="Split to fit calibration/weights")
+    p.add_argument(
+        "--calib-split",
+        type=str,
+        default="train",
+        help="Split to fit calibration/weights; use train for leakage-free val evaluation",
+    )
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--tta-flip", action="store_true")
