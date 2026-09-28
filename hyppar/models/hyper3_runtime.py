@@ -85,6 +85,15 @@ class Hyper3ClipRuntime:
             embeddings = self.model.encode_images(list(images))
         return np.asarray(embeddings, dtype=np.float32)
 
+    def encode_image_tangents(self, images: Sequence[Image.Image]) -> np.ndarray:
+        if self.backend != "transformers":
+            raise RuntimeError("Tangent embeddings require the Transformers backend")
+        inputs = self.image_processor(images=list(images), return_tensors="pt")
+        pixel_values = inputs["pixel_values"].to(self.device)
+        with _inference_mode():
+            embeddings = self.model.encode_image_tangent(pixel_values)
+        return embeddings.detach().cpu().numpy().astype(np.float32)
+
     def encode_texts(self, texts: Sequence[str]) -> np.ndarray:
         if self.backend == "transformers":
             tokens = self.tokenizer(
@@ -99,6 +108,28 @@ class Hyper3ClipRuntime:
         else:
             embeddings = self.model.encode_texts(list(texts))
         return np.asarray(embeddings, dtype=np.float32)
+
+    def encode_text_tangents(self, texts: Sequence[str]) -> np.ndarray:
+        if self.backend != "transformers":
+            raise RuntimeError("Tangent embeddings require the Transformers backend")
+        tokens = self.tokenizer(
+            list(texts), padding=True, truncation=True, max_length=77, return_tensors="pt"
+        )
+        with _inference_mode():
+            embeddings = self.model.encode_text_tangent(
+                tokens["input_ids"].to(self.device),
+                tokens["attention_mask"].to(self.device),
+            )
+        return embeddings.detach().cpu().numpy().astype(np.float32)
+
+    def lift_text_tangents(self, tangents: np.ndarray) -> np.ndarray:
+        if self.backend != "transformers":
+            raise RuntimeError("Tangent embeddings require the Transformers backend")
+        import torch
+
+        with _inference_mode():
+            embeddings = self.model.project_text_features(torch.from_numpy(tangents).to(self.device))
+        return embeddings.detach().cpu().numpy().astype(np.float32)
 
 
 def _cuda_available() -> bool:
