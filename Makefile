@@ -10,7 +10,8 @@ export PYTHONPATH := $(CURDIR)$(if $(PYTHONPATH),:$(PYTHONPATH),)
 
 .PHONY: help setup smoke data train-main train-euclid train-small train-base train-paper \
         eval-main eval-modes package clean-ckpts curriculum \
-	ablations ablations-dry eval-ablations train-par eval-par package-par lodo-par
+	ablations ablations-dry eval-ablations train-par eval-par package-par lodo-par \
+	hyper3-install hyper3-zero-shot train-hyper3-adapter
 
 help:
 	@echo "HypPAR Makefile targets:"
@@ -32,6 +33,9 @@ help:
 	@echo "  make eval-par       calibrated weighted-L1 retrieval on val"
 	@echo "  make package-par    Codabench zip for PAR submission"
 	@echo "  make lodo-par       leave-one-domain-out model selection (3 folds)"
+	@echo "  make hyper3-zero-shot  evaluate cached/downloaded Hyper3-CLIP prompts"
+	@echo "  make hyper3-install     install optional Hyper3-CLIP runtime"
+	@echo "  make train-hyper3-adapter  train frozen Hyper3-CLIP UPAR adapter"
 	@echo ""
 	@echo "Data docs: DATA_SETUP.md"
 	@echo "Override:  make train-main CONFIG=configs/main_lorentz_entail_small.env"
@@ -100,6 +104,18 @@ ablations-dry:
 
 eval-ablations:
 	$(PYTHON) -m hyppar.scripts.run_ablations --skip-train
+
+hyper3-zero-shot:
+	$(PYTHON) -m hyppar.scripts.eval_hyper3_zero_shot \
+		--batch-size 16 --query-chunk 8 --gallery-chunk 512
+
+hyper3-install:
+	$(PYTHON) -m pip install -e ".[hyper3]"
+
+train-hyper3-adapter:
+	$(PYTHON) -m hyppar.scripts.train_hyper3_adapter \
+		--name hyper3_frozen_adapter --epochs 20 --batch-size 128 \
+		--lambda-attr 1 --lambda-exact 1 --lambda-graded 1 --amp
 
 eval-main:
 	$(PYTHON) -m hyppar.evaluate \

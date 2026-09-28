@@ -17,5 +17,8 @@ dependencies = [
   "pandas>=2.0",
 ]
 
+[project.optional-dependencies]
+hyper3 = ["hyper-models[ml]>=0.3.2"]
+
 [tool.setuptools.packages.find]
 include = ["hyppar*"]
