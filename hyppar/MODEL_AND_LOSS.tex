@@ -1,163 +1,167 @@
 \documentclass[11pt]{article}
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath,amssymb,hyperref,listings}
-\title{HypPAR ConvNeXt-Base Model and Loss}
+\title{Supervised ConvNeXt PAR for UPAR Track 2}
 \author{}
 \date{September 2026}
 \begin{document}
 \maketitle
 
-\section{Task}
-Each gallery image $x_i$ has a 40-dimensional binary attribute vector $a_i$ and semantic ID $s_i$. A query is $q\in\{0,1\}^{40}$. The system returns a distance matrix $D(q,x)$, where lower values rank images earlier. The primary metric is mADM; mAP and Rank-1 are secondary.
+\begin{abstract}
+The current strongest direction for UPAR Track 2 is supervised pedestrian attribute recognition (PAR), not zero-shot text retrieval or the current hyperbolic prototype model. A ConvNeXt image encoder predicts the 40 UPAR attributes directly. Retrieval compares the predicted attribute probabilities of each gallery image with a binary attribute query using calibrated, attribute-weighted L1 distance.
+\end{abstract}
 
-\section{Image model}
-The image encoder is an ImageNet-pretrained torchvision ConvNeXt. The repository supports Tiny, Small, and Base using \texttt{--backbone}. Base produces a 1024-dimensional feature vector:
+\section{Problem}
+Each gallery image $x_i$ has a binary attribute vector $a_i\in\{0,1\}^{40}$ and a semantic query ID $s_i$. A query is also a binary vector:
 \[
-f=E_\theta(x)\in\mathbb{R}^{1024}.
+q\in\{0,1\}^{40}.
 \]
-A learned projection maps $f$ to a 128-dimensional tangent vector and the exponential map sends it to the Lorentz hyperboloid. The backbone may be frozen, or only its final stages may be unfrozen with \texttt{--unfreeze-stages}.
+The system returns a distance matrix $D\in\mathbb{R}^{Q\times G}$, where lower values rank images earlier. The primary metric is mADM; mAP and Rank-1 are secondary metrics.
 
-ConvNeXt uses LayerNorm rather than BatchNorm. LayerNorm normalizes each example independently and has no batch running statistics. Consequently, a physical batch of 2 or 4 does not create the BatchNorm small-batch problem. Replacing pretrained LayerNorm with GroupNorm would change the pretrained architecture and is not recommended for this experiment. GroupNorm is appropriate for a new CNN designed around it, not necessary for this ConvNeXt.
+\section{Attributes are not text}
+UPAR queries are structured labels, not natural-language sentences. For example, a query vector may activate the attributes Young and Gender-Female. The current model therefore does not use a text encoder. It directly consumes the fixed 40-dimensional vector.
 
-\section{Attribute head}
-The attribute head predicts all 40 attributes:
+This is deliberate: zero-shot CLIP and Hyper3-CLIP were trained on general image-text data, while UPAR attributes have dataset-specific definitions and annotation conventions. The experiments showed that supervised attribute prediction is substantially stronger than zero-shot prompt matching.
+
+\section{ConvNeXt image encoder}
+The image encoder is an ImageNet-pretrained ConvNeXt:
 \[
-z=W_af+b_a,\qquad p_k=\sigma(z_k).
+f_i=E_\theta(x_i),\qquad f_i\in\mathbb{R}^{d_f}.
 \]
-The binary cross-entropy loss is
+ConvNeXt-Tiny produces a 768-dimensional pooled feature. Small and Base produce larger features. The current main experiment starts with Tiny because it gave the best capacity-to-generalization tradeoff in the available results.
+
+The backbone uses convolutional stages, depthwise convolutions, pointwise projections, LayerNorm, and global average pooling. ConvNeXt uses LayerNorm rather than BatchNorm. LayerNorm has no batch running statistics, so small physical batches and gradient accumulation do not create the usual BatchNorm problem. Replacing pretrained LayerNorm with GroupNorm is unnecessary and would change the pretrained architecture.
+
+\section{40-way attribute head}
+The classifier is a dropout layer followed by one linear head:
 \[
-\mathcal{L}_{\rm attr}=-\frac{1}{40B}\sum_{i=1}^B\sum_{k=1}^{40}
+z_i=Wf_i+b,\qquad z_i\in\mathbb{R}^{40}.
+\]
+Each logit corresponds to one fixed UPAR attribute. The predicted probability is
+\[
+p_{ik}=\sigma(z_{ik})=\frac{1}{1+\exp(-z_{ik})}.
+\]
+The gallery representation is therefore
+\[
+p_i=(p_{i1},\ldots,p_{i40})\in[0,1]^{40}.
+\]
+No text embedding is required.
+
+\section{Focal multi-label loss}
+The base multi-label objective is binary cross-entropy with logits:
+\[
+\mathcal{L}_{\mathrm{BCE}}=-\frac{1}{40B}\sum_{i=1}^{B}\sum_{k=1}^{40}
 \left[a_{ik}\log\sigma(z_{ik})+(1-a_{ik})\log(1-\sigma(z_{ik}))\right].
 \]
-The implementation uses PyTorch's numerically stable BCE-with-logits function.
+UPAR attributes are imbalanced, so the trainer uses focal BCE. Define
+\[
+p_{t,ik}=a_{ik}\sigma(z_{ik})+(1-a_{ik})(1-\sigma(z_{ik})).
+\]
+Then
+\[
+\mathrm{FL}_{ik}=\alpha(1-p_{t,ik})^\gamma\mathrm{BCE}_{ik},
+\qquad
+\mathcal{L}_{\mathrm{focal}}=\frac{1}{40B}\sum_{i,k}\mathrm{FL}_{ik}.
+\]
+The current settings use $\gamma=2$ and label smoothing $\epsilon=0.05$:
+\[
+\tilde a=(1-\epsilon)a+\frac{\epsilon}{2}.
+\]
+Focal loss reduces the influence of easy, common attributes and emphasizes difficult examples.
 
-\section{Lorentz geometry}
-A Lorentz point is $h=(h_0,h_1,\ldots,h_d)$ with Minkowski product
+\section{EMA and checkpointing}
+An exponential moving average is updated after optimizer steps:
 \[
-\langle u,v\rangle_L=-u_0v_0+\sum_{r=1}^du_rv_r.
+\theta_{\mathrm{EMA}}=\rho\theta_{\mathrm{EMA}}+(1-\rho)\theta.
 \]
-For curvature $c>0$, valid points satisfy
-\[
-\langle h,h\rangle_L=-1/c,\qquad h_0>0.
-\]
-The hyperbolic distance is
-\[
-d_H(u,v)=\frac{1}{\sqrt c}\operatorname{arcosh}(-c\langle u,v\rangle_L).
-\]
-A tangent vector is mapped using
-\[
-\operatorname{Exp}_0^c(v)=
-\left(\frac{\cosh(\sqrt c\|v\|)}{\sqrt c},
-\frac{\sinh(\sqrt c\|v\|)}{\sqrt c}\frac{\sqrt c v}{\sqrt c\|v\|}\right).
-\]
-The image embedding is $h_x=\operatorname{Exp}_0^c(W_xf+b_x)$.
+The EMA model is used for validation and checkpointing. Training loss alone is not the retrieval metric; each candidate must be evaluated with mADM, mAP, and Rank-1.
 
-\section{Attribute prototypes and queries}
-Each attribute has a tangent prototype $t_k$, mapped to $h_k=\operatorname{Exp}_0^c(t_k)$. Active prototypes are averaged for a query:
+\section{Attribute retrieval distance}
+For binary query $q$ and predicted gallery probabilities $p_i$, the unweighted distance is
 \[
-\bar h_q=\frac{1}{\max(1,\sum_kq_k)}\sum_{k=1}^{40}q_kh_k.
+d_{\mathrm{L1}}(q,p_i)=\sum_{k=1}^{40}|q_k-p_{ik}|.
 \]
-With learned composition, an MLP transforms this average. A radius factor
+Because $q_k$ is binary,
 \[
-\rho_q=\operatorname{clip}\left(\frac{\sum_kq_k}{40},0.05,1\right)
+|q_k-p_{ik}|=p_{ik}+q_k(1-2p_{ik}),
 \]
-makes sparse queries closer to the origin. The time coordinate is reconstructed by
+so the full distance matrix can be computed as
 \[
-h_{q,0}=\sqrt{1/c+\|\rho_q\bar h_q^{\rm spatial}\|^2}.
-\]
-The image radius is similarly scaled using predicted attribute density:
-\[
-d_x=\operatorname{clip}\left(\frac{1}{40}\sum_k\sigma(z_k),0.15,1\right).
-\]
-This encodes the intended hierarchy: sparse queries are general, while detailed images can be more specific.
-
-\section{Entailment score}
-Let $o$ be the Lorentz origin, $o_x=d_H(h_x,o)$, $o_q=d_H(h_q,o)$, and $d_{qx}=d_H(h_x,h_q)$. The exterior angle is computed as
-\[
-\cos\alpha=\frac{\cosh(\sqrt c o_x)\cosh(\sqrt c d_{qx})-\cosh(\sqrt c o_q)}{\sinh(\sqrt c o_x)\sinh(\sqrt c d_{qx})}.
-\]
-The cone aperture is
-\[
-\psi(x)=\arcsin\left(\min\left(\frac{K}{\sinh(\sqrt c o_x)},1\right)\right).
-\]
-The entailment energy and distance are
-\[
-E(x\Rightarrow q)=\max(0,\alpha-\psi(x)),
-\qquad d_{\rm ent}=d_H(h_q,h_x)+\beta E(x\Rightarrow q).
-\]
-The gallery image is treated as the specific premise that should entail the more general query.
-
-\section{Hybrid score}
-Hyperbolic similarity is $s_{\rm hyp}=-d_{\rm ent}$. The attribute L1 distance is
-\[
-d_{\rm attr}(q,x)=\sum_{k=1}^{40}|q_k-p_{xk}|
-=\sum_kp_{xk}+\sum_kq_k(1-2p_{xk}).
-\]
-The code z-scores both similarities per query:
-\[
-Z(s)=\frac{s-\operatorname{mean}(s)}{\operatorname{std}(s)}.
-\]
-With hybrid coefficient $m$ (default $0.7$),
-\[
-s_{\rm hybrid}=mZ(s_{\rm hyp})+(1-m)Z(-d_{\rm attr}),
-\qquad D=-s_{\rm hybrid}.
+d_{\mathrm{L1}}(q,p_i)=\sum_kp_{ik}+\sum_kq_k(1-2p_{ik}).
 \]
 
-\section{Multi-positive ranking loss}
-For a physical batch of $B$ images, let $d_{ij}$ be query-image distance and
+The evaluator uses attribute weights:
 \[
-\ell_{ij}=-d_{ij}/\tau.
+d_w(q,p_i)=\sum_{k=1}^{40}w_k|q_k-p_{ik}|,
 \]
-Images sharing semantic ID are positives:
+with the equivalent memory-safe formula
 \[
-M_{ij}=\mathbf{1}[s_i=s_j],\qquad P_i=\sum_jM_{ij}.
+d_w(q,p_i)=\sum_kw_kp_{ik}+\sum_kq_kw_k(1-2p_{ik}).
 \]
-The multi-positive InfoNCE loss is
-\[
-\mathcal{L}_{\rm rank}=-\frac1B\sum_i\frac1{P_i}\sum_jM_{ij}
-\left(\ell_{ij}-\log\sum_r e^{\ell_{ir}}\right).
-\]
-The prototype-model objective is
-\[
-\mathcal{L}=\lambda_{\rm attr}\mathcal{L}_{\rm attr}+\lambda_{\rm rank}\mathcal{L}_{\rm rank}.
-\]
-The defaults are $\lambda_{\rm attr}=2$ and $\lambda_{\rm rank}=1$. For the Base hybrid experiment, $\lambda_{\rm attr}=4$ is a reasonable starting point because the final score directly uses predicted attributes.
+This avoids allocating a $Q\times G\times40$ tensor during validation.
 
-\section{Accumulation on 8 GB}
-With $A$ accumulation steps, each physical-batch loss is divided by $A$:
+\section{Calibration and weighting}
+Calibration and retrieval weights must be fitted on the training split and then applied to validation or test. Fitting them on validation labels would leak evaluation information and produce an optimistic score.
+
+The evaluator estimates error weights from attribute prediction errors and distribution-based weights from gallery frequency. These are combined into $w_k$. The clean protocol is:
 \[
-\widehat{\mathcal{L}}_t=\mathcal{L}_t/A.
+\texttt{--calib-split train},\qquad\texttt{--split val}.
 \]
-Gradients from $A$ forward/backward passes are accumulated, clipped once, and used for one optimizer update. AMP reduces activation memory. The effective optimization batch is approximately physical batch times $A$.
 
-Accumulation does not increase in-batch negatives: a physical batch of 2 still creates a $2\times2$ ranking matrix. Therefore use the largest physical batch that fits, then accumulate. Batch 4 with accumulation 8 is preferable to batch 2 with accumulation 16 when both fit.
+\section{mADM}
+The ground-truth degree of match for query $q_j$ and gallery labels $a_i$ is
+\[
+\mathrm{DoM}(q_j,a_i)=1-\frac{1}{40}\sum_{k=1}^{40}|q_{jk}-a_{ik}|.
+\]
+The ranking should place high-DoM images near the top, while exact semantic-ID matches provide the retrieval relevance signal. This is why improving the 40 attribute probabilities directly is more aligned with mADM than generic image-text similarity.
 
-\section{Recommended Base command}
+\section{8 GB training}
+With physical batch $B$ and accumulation factor $A$, each loss is divided by $A$ before backpropagation:
+\[
+\widehat{\mathcal{L}}_t=\frac{\mathcal{L}_t}{A}.
+\]
+Gradients are accumulated for $A$ batches, clipped once, and used for one optimizer update. The approximate effective batch is
+\[
+B_{\mathrm{effective}}=B\times A.
+\]
+AMP reduces activation memory. The Tiny one-epoch probe demonstrated that physical batch 64 fits on the 8 GB GPU, so the current full run uses $B=64$ and $A=1$. If it fails, use $B=32$ and $A=2$.
+
+\section{Recommended experiment}
 \begin{lstlisting}[basicstyle=\ttfamily\small,breaklines=true]
-python -m hyppar.train ^
-  --model prototypes ^
-  --geometry lorentz ^
-  --composition learned ^
-  --score-mode hybrid ^
-  --backbone convnext_base ^
-  --epochs 20 ^
-  --batch-size 2 ^
-  --grad-accum-steps 16 ^
-  --amp ^
-  --unfreeze-stages 2 ^
-  --lr 3e-4 ^
-  --backbone-lr 5e-7 ^
-  --lambda-attr 4 ^
-  --lambda-rank 1 ^
-  --num-workers 2 ^
-  --name proto_lorentz_base_hybrid
+python -m hyppar.scripts.train_par \\
+  --name par_convnext_tiny_30 \\
+  --backbone convnext_tiny \\
+  --epochs 30 \\
+  --batch-size 64 \\
+  --grad-accum-steps 1 \\
+  --lr 1e-4 \\
+  --dropout 0.3 \\
+  --focal-gamma 2 \\
+  --label-smoothing 0.05 \\
+  --amp \\
+  --num-workers 2
 \end{lstlisting}
 
-Evaluate with:
+Leakage-free evaluation:
 \begin{lstlisting}[basicstyle=\ttfamily\small,breaklines=true]
-python -m hyppar.evaluate ^
-  --ckpt hyppar/checkpoints/proto_lorentz_base_hybrid/model.pt ^
-  --score-mode hybrid --batch-size 64 --num-workers 2
+python -m hyppar.scripts.evaluate_par \\
+  --ckpt checkpoints/par_convnext_tiny_30/model.pt \\
+  --calib-split train \\
+  --split val \\
+  --batch-size 64 \\
+  --num-workers 2 \\
+  --save-artifacts \\
+  --out checkpoints/par_convnext_tiny_30/eval_val_par_clean.json
 \end{lstlisting}
+
+Packaging:
+\begin{lstlisting}[basicstyle=\ttfamily\small,breaklines=true]
+python -m hyppar.scripts.package_par_submission \\
+  --ckpt checkpoints/par_convnext_tiny_30/model.pt \\
+  --out checkpoints/par_task2_par_convnext_tiny_30.zip
+\end{lstlisting}
+
+\section{Current evidence}
+The one-epoch supervised Tiny probe reached approximately $0.524$ mADM with training-split calibration. This is substantially stronger than the current hyperbolic and zero-shot CLIP experiments. The full experiment tests whether longer supervised PAR training, calibration, and weighted attribute retrieval can approach $0.60$ or higher.
 
 \end{document}
