@@ -15,11 +15,19 @@ from tqdm import tqdm
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
-from hyppar.data.dataset import UPARTask2Dataset, filter_records_by_domains
+from hyppar.data.dataset import UPARTask2Dataset
 from hyppar.losses.focal import focal_bce_with_logits
 from hyppar.models.par_classifier import build_par_model
 from hyppar.paths import ANNO_ROOT, CKPT_DIR, DATA_ROOT, train_transform
 from hyppar.utils.ema import ModelEMA
+
+
+def filter_records_by_domains(records: list[dict], domains: list[str] | None) -> list[dict]:
+    """Filter records without requiring the optional domain helper module."""
+    if not domains:
+        return records
+    allowed = set(domains)
+    return [record for record in records if record.get("domain") in allowed]
 
 
 def parse_domains(s: str) -> list[str] | None:
