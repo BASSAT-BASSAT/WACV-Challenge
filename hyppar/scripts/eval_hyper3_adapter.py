@@ -27,6 +27,7 @@ def score_hyperbolic(
     gallery_embeddings: torch.Tensor,
     query_chunk: int,
     gallery_chunk: int,
+    curvature: float,
 ) -> np.ndarray:
     rows: list[torch.Tensor] = []
     for start in range(0, query_embeddings.size(0), query_chunk):
@@ -37,7 +38,7 @@ def score_hyperbolic(
             aa = qb[:, None, :].expand(-1, gb.size(0), -1).reshape(-1, qb.size(-1))
             bb = gb[None, :, :].expand(qb.size(0), -1, -1).reshape(-1, gb.size(-1))
             parts.append(
-                lorentz_distance(aa, bb, c=1.0).view(qb.size(0), gb.size(0)).cpu()
+                lorentz_distance(aa, bb, c=curvature).view(qb.size(0), gb.size(0)).cpu()
             )
         rows.append(torch.cat(parts, dim=1))
     return torch.cat(rows, dim=0).numpy()
@@ -62,7 +63,7 @@ def main() -> None:
     parser.add_argument("--split", default="val")
     parser.add_argument("--score-mode", choices=["hyperbolic", "attr_l1", "hybrid"], default="hybrid")
     parser.add_argument("--hybrid-mix", type=float, default=0.7)
-    parser.add_argument("--model", default="hyper3-clip-v1")
+    parser.add_argument("--model", default="hyper3labs/hyper3-clip-v1")
     parser.add_argument("--device", default=None)
     parser.add_argument("--local-files-only", action="store_true")
     parser.add_argument("--batch-size", type=int, default=16)
@@ -76,7 +77,8 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     checkpoint = torch.load(args.ckpt, map_location=device, weights_only=False)
-    query_adapter = Hyper3AttributeQueryAdapter().to(device)
+    curvature = float(checkpoint.get("curvature", 1.0))
+    query_adapter = Hyper3AttributeQueryAdapter(curvature=curvature).to(device)
     attribute_head = Hyper3AttributeHead().to(device)
     query_adapter.load_state_dict(checkpoint["query_adapter"])
     attribute_head.load_state_dict(checkpoint["attribute_head"])
@@ -102,7 +104,7 @@ def main() -> None:
         query_embeddings = query_adapter(query_tensor)
         probabilities = torch.sigmoid(attribute_head(gallery)).cpu().numpy()
     hyperbolic = score_hyperbolic(
-        query_embeddings, gallery, args.query_chunk, args.gallery_chunk
+        query_embeddings, gallery, args.query_chunk, args.gallery_chunk, curvature
     )
     attr = attribute_distance(queries, probabilities)
     if args.score_mode == "hyperbolic":
@@ -119,6 +121,7 @@ def main() -> None:
     results = evaluate_ranking(distances, queries, gallery_attrs, gallery_ids, domains)
     results["score_mode"] = args.score_mode
     results["hybrid_mix"] = args.hybrid_mix
+    results["curvature"] = curvature
     output = Path(args.out) if args.out else Path(args.ckpt).parent / f"eval_{args.split}_{args.score_mode}.json"
     output.write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(json.dumps(results["overall"], indent=2))

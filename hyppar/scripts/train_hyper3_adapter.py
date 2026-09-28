@@ -32,7 +32,7 @@ from hyppar.scripts.eval_hyper3_zero_shot import cache_gallery
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", default="hyper3_frozen_adapter")
-    parser.add_argument("--model", default="hyper3-clip-v1")
+    parser.add_argument("--model", default="hyper3labs/hyper3-clip-v1")
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--grad-accum-steps", type=int, default=1)
@@ -84,7 +84,8 @@ def main() -> None:
         pin_memory=True,
     )
 
-    query_adapter = Hyper3AttributeQueryAdapter().to(device)
+    curvature = runtime.curvature
+    query_adapter = Hyper3AttributeQueryAdapter(curvature=curvature).to(device)
     attribute_head = Hyper3AttributeHead().to(device)
     model = torch.nn.ModuleDict({"query_adapter": query_adapter, "attribute_head": attribute_head})
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=5e-4)
@@ -122,6 +123,7 @@ def main() -> None:
                 )
                 graded_loss = graded_pairwise_ranking_loss(
                     query_embeddings, gallery_batch, attr_batch, query_batch
+                    , curvature=curvature
                 )
                 loss = (
                     args.lambda_attr * attr_loss
@@ -154,6 +156,7 @@ def main() -> None:
         "query_adapter": query_adapter.state_dict(),
         "attribute_head": attribute_head.state_dict(),
         "args": vars(args),
+        "curvature": curvature,
         "epoch": args.epochs,
     }
     torch.save(checkpoint, output_dir / "model.pt")

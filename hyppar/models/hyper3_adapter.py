@@ -12,9 +12,10 @@ from .lorentz import exp_map0, lorentz_distance
 class Hyper3AttributeQueryAdapter(nn.Module):
     """Map a 40-bit UPAR query into Hyper3-CLIP's 513-D Lorentz space."""
 
-    def __init__(self, attr_dim: int = 40, hidden_dim: int = 512, tangent_dim: int = 512) -> None:
+    def __init__(self, attr_dim: int = 40, hidden_dim: int = 512, tangent_dim: int = 512, curvature: float = 1.0) -> None:
         super().__init__()
         self.tangent_dim = tangent_dim
+        self.curvature = curvature
         self.mlp = nn.Sequential(
             nn.Linear(attr_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
@@ -26,7 +27,7 @@ class Hyper3AttributeQueryAdapter(nn.Module):
         tangent = self.mlp(query.float())
         active = query.float().sum(dim=-1, keepdim=True).clamp(min=1.0)
         tangent = tangent * (active / 40.0).clamp(min=0.05, max=1.0)
-        return exp_map0(tangent, c=1.0)
+        return exp_map0(tangent, c=self.curvature)
 
 
 class Hyper3AttributeHead(nn.Module):
@@ -53,6 +54,7 @@ def graded_pairwise_ranking_loss(
     queries: torch.Tensor,
     margin_scale: float = 0.5,
     min_agreement_gap: float = 0.05,
+    curvature: float = 1.0,
 ) -> torch.Tensor:
     """Prefer gallery images with higher attribute agreement for each query.
 
@@ -61,9 +63,9 @@ def graded_pairwise_ranking_loss(
     """
 
     distances = lorentz_distance(
-        query_embeddings[:, None, :].expand(-1, gallery_embeddings.size(0), -1).reshape(-1, query_embeddings.size(-1)),
+    query_embeddings[:, None, :].expand(-1, gallery_embeddings.size(0), -1).reshape(-1, query_embeddings.size(-1)),
         gallery_embeddings[None, :, :].expand(query_embeddings.size(0), -1, -1).reshape(-1, gallery_embeddings.size(-1)),
-        c=1.0,
+        c=curvature,
     ).view(query_embeddings.size(0), gallery_embeddings.size(0))
     agreement = 1.0 - torch.abs(queries[:, None, :] - gallery_attributes[None, :, :]).mean(dim=-1)
     better = agreement[:, :, None] - agreement[:, None, :]

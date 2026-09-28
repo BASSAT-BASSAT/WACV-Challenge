@@ -45,7 +45,7 @@ def cache_gallery(
     return embeddings
 
 
-def compose_text_queries(text_embeddings: np.ndarray, queries: np.ndarray) -> np.ndarray:
+def compose_text_queries(text_embeddings: np.ndarray, queries: np.ndarray, curvature: float) -> np.ndarray:
     spatial = text_embeddings[:, 1:]
     query_spatial = []
     for query in queries:
@@ -57,7 +57,7 @@ def compose_text_queries(text_embeddings: np.ndarray, queries: np.ndarray) -> np
         density = np.clip(active / 40.0, 0.05, 1.0)
         query_spatial.append(mixed * density)
     spatial_tensor = torch.from_numpy(np.asarray(query_spatial, dtype=np.float32))
-    time = torch.sqrt(1.0 + (spatial_tensor * spatial_tensor).sum(dim=-1, keepdim=True))
+    time = torch.sqrt((1.0 / curvature) + (spatial_tensor * spatial_tensor).sum(dim=-1, keepdim=True))
     return torch.cat([time, spatial_tensor], dim=-1).numpy()
 
 
@@ -66,6 +66,7 @@ def score_queries(
     gallery: np.ndarray,
     query_chunk: int,
     gallery_chunk: int,
+    curvature: float,
 ) -> np.ndarray:
     q = torch.from_numpy(queries).float()
     g = torch.from_numpy(gallery).float()
@@ -77,7 +78,7 @@ def score_queries(
             gb = g[gstart : gstart + gallery_chunk]
             aa = qb[:, None, :].expand(-1, gb.size(0), -1).reshape(-1, q.size(-1))
             bb = gb[None, :, :].expand(qb.size(0), -1, -1).reshape(-1, g.size(-1))
-            parts.append(lorentz_distance(aa, bb, c=1.0).view(qb.size(0), gb.size(0)))
+            parts.append(lorentz_distance(aa, bb, c=curvature).view(qb.size(0), gb.size(0)))
         rows.append(torch.cat(parts, dim=1))
     return torch.cat(rows, dim=0).numpy()
 
@@ -85,7 +86,7 @@ def score_queries(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--split", default="val")
-    parser.add_argument("--model", default="hyper3-clip-v1")
+    parser.add_argument("--model", default="hyper3labs/hyper3-clip-v1")
     parser.add_argument("--device", default=None)
     parser.add_argument("--local-files-only", action="store_true")
     parser.add_argument("--batch-size", type=int, default=16)
@@ -112,10 +113,13 @@ def main() -> None:
 
     prompts = [f"a pedestrian with {name.replace('-', ' ')}" for name in ATTRIBUTE_NAMES]
     text_embeddings = runtime.encode_texts(prompts)
-    query_embeddings = compose_text_queries(text_embeddings, query_attributes)
-    distances = score_queries(query_embeddings, gallery_embeddings, args.query_chunk, args.gallery_chunk)
+    query_embeddings = compose_text_queries(text_embeddings, query_attributes, runtime.curvature)
+    distances = score_queries(
+        query_embeddings, gallery_embeddings, args.query_chunk, args.gallery_chunk, runtime.curvature
+    )
     results = evaluate_ranking(distances, query_attributes, gallery_attributes, gallery_ids, domains)
     results["model"] = args.model
+    results["curvature"] = runtime.curvature
     results["mode"] = "zero_shot_attribute_prompt_composition"
     output = Path(args.out) if args.out else CKPT_DIR / "hyper3_zero_shot" / f"eval_{args.split}.json"
     output.parent.mkdir(parents=True, exist_ok=True)
